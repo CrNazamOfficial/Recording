@@ -4,11 +4,14 @@ _G.IsRecording = false
 _G.IsPaused = false
 _G.CurrentRecording = {}
 _G.RecordInterval = 0.1
+_G.IsPlaying = false
+_G.PlaybackConnection = nil
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
+local UIS = game:GetService("UserInputService")
 
 -- Save/Load Functions
 local function saveToFile()
@@ -217,13 +220,16 @@ local function startRecording()
     
     createNotification("Recording Started", Color3.fromRGB(80, 255, 80))
     
+    local lastRecord = tick()
     recordConnection = RunService.Heartbeat:Connect(function()
         if not _G.IsPaused and _G.IsRecording then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                table.insert(_G.CurrentRecording, hrp.CFrame)
+            if tick() - lastRecord >= _G.RecordInterval then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    table.insert(_G.CurrentRecording, hrp.CFrame)
+                    lastRecord = tick()
+                end
             end
-            wait(_G.RecordInterval)
         end
     end)
 end
@@ -267,7 +273,21 @@ local function saveRecording(name)
     return true
 end
 
+local function stopPlayback()
+    if _G.PlaybackConnection then
+        _G.PlaybackConnection:Disconnect()
+        _G.PlaybackConnection = nil
+    end
+    _G.IsPlaying = false
+    createNotification("Playback Stopped", Color3.fromRGB(255, 200, 80))
+end
+
 local function playRecording(pathData)
+    if _G.IsPlaying then
+        createNotification("Already playing!", Color3.fromRGB(255, 80, 80))
+        return
+    end
+    
     local player = Players.LocalPlayer
     if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
         createNotification("Character not found!", Color3.fromRGB(255, 80, 80))
@@ -276,15 +296,28 @@ local function playRecording(pathData)
     
     local hrp = player.Character.HumanoidRootPart
     
+    _G.IsPlaying = true
     createNotification("Playing Recording", Color3.fromRGB(80, 200, 255))
     
-    spawn(function()
-        for i, cframe in ipairs(pathData) do
-            if not player.Character then break end
-            hrp.CFrame = cframe
-            wait(_G.RecordInterval)
+    local index = 1
+    local lastUpdate = tick()
+    
+    _G.PlaybackConnection = RunService.Heartbeat:Connect(function()
+        if not _G.IsPlaying or not player.Character then
+            stopPlayback()
+            return
         end
-        createNotification("Playback Complete", Color3.fromRGB(80, 255, 80))
+        
+        if tick() - lastUpdate >= _G.RecordInterval then
+            if index <= #pathData then
+                hrp.CFrame = pathData[index]
+                index = index + 1
+                lastUpdate = tick()
+            else
+                stopPlayback()
+                createNotification("Playback Complete", Color3.fromRGB(80, 255, 80))
+            end
+        end
     end)
 end
 
@@ -296,15 +329,33 @@ local function createMainGUI()
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.ResetOnSpawn = false
     
+    -- MINIMIZE ICON (HIDDEN BY DEFAULT)
+    local iconButton = Instance.new("ImageButton")
+    iconButton.Name = "MinimizedIcon"
+    iconButton.Size = UDim2.new(0, 35, 0, 35)
+    iconButton.Position = UDim2.new(0, 15, 0, 100)
+    iconButton.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    iconButton.BorderColor3 = Color3.fromRGB(255, 100, 100)
+    iconButton.BorderSizePixel = 2
+    iconButton.Image = "rbxassetid://109307269006494"
+    iconButton.Visible = false
+    iconButton.Active = true
+    iconButton.Parent = gui
+    
+    local iconCorner = Instance.new("UICorner")
+    iconCorner.CornerRadius = UDim.new(0, 6)
+    iconCorner.Parent = iconButton
+    
     -- Main Frame (Compact 1:1 Ratio)
     local main = Instance.new("Frame")
     main.Name = "Main"
-    main.Size = UDim2.new(0, 160, 0, 240)
-    main.Position = UDim2.new(0.5, -80, 0.5, -120)
+    main.Size = UDim2.new(0, 160, 0, 265)
+    main.Position = UDim2.new(0.5, -80, 0.5, -132)
     main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     main.BorderColor3 = Color3.fromRGB(255, 100, 100)
     main.BorderSizePixel = 2
     main.Active = true
+    main.Visible = true
     main.Parent = gui
     
     local mainCorner = Instance.new("UICorner")
@@ -313,6 +364,7 @@ local function createMainGUI()
     
     -- Header
     local header = Instance.new("Frame")
+    header.Name = "Header"
     header.Size = UDim2.new(1, 0, 0, 22)
     header.BackgroundTransparency = 1
     header.Parent = main
@@ -331,7 +383,9 @@ local function createMainGUI()
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size = UDim2.new(0, 18, 0, 18)
     closeBtn.Position = UDim2.new(1, -20, 0.5, -9)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    closeBtn.BorderColor3 = Color3.fromRGB(255, 100, 100)
+    closeBtn.BorderSizePixel = 1
     closeBtn.Text = "X"
     closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     closeBtn.Font = Enum.Font.GothamBold
@@ -341,10 +395,6 @@ local function createMainGUI()
     local closeBtnCorner = Instance.new("UICorner")
     closeBtnCorner.CornerRadius = UDim.new(0, 4)
     closeBtnCorner.Parent = closeBtn
-    
-    closeBtn.MouseButton1Click:Connect(function()
-        gui:Destroy()
-    end)
     
     -- Control Buttons
     local btnY = 28
@@ -377,6 +427,10 @@ local function createMainGUI()
     btnY = btnY + btnHeight + btnSpacing
     
     local stopBtn = createButton("⏹ STOP", Color3.fromRGB(100, 25, 25), btnY)
+    btnY = btnY + btnHeight + btnSpacing
+    
+    -- STOP PLAYBACK BUTTON (NEW!)
+    local stopPlayBtn = createButton("⏹ STOP PLAY", Color3.fromRGB(150, 50, 25), btnY)
     btnY = btnY + btnHeight + btnSpacing
     
     -- Input Frame
@@ -533,6 +587,10 @@ local function createMainGUI()
         stopRecording()
     end)
     
+    stopPlayBtn.MouseButton1Click:Connect(function()
+        stopPlayback()
+    end)
+    
     saveBtn.MouseButton1Click:Connect(function()
         local name = nameBox.Text:gsub("^%s*(.-)%s*$", "%1")
         if name ~= "" then
@@ -543,7 +601,26 @@ local function createMainGUI()
         end
     end)
     
-    -- Drag
+    -- Close/Minimize System
+    local isMinimized = false
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        if not isMinimized then
+            main.Visible = false
+            iconButton.Visible = true
+            isMinimized = true
+        end
+    end)
+    
+    iconButton.MouseButton1Click:Connect(function()
+        if isMinimized then
+            main.Visible = true
+            iconButton.Visible = false
+            isMinimized = false
+        end
+    end)
+    
+    -- Drag Main Frame
     local dragging = false
     local dragStart, startPos
     
@@ -555,16 +632,55 @@ local function createMainGUI()
         end
     end)
     
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
+    UIS.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
             main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
     
-    game:GetService("UserInputService").InputEnded:Connect(function(input)
+    UIS.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
+        end
+    end)
+    
+    -- Drag Icon
+    local iconDragging = false
+    local iconDragStart, iconStartPos
+    local iconDragMoved = false
+    local dragThreshold = 5
+    
+    iconButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            iconDragging = true
+            iconDragStart = input.Position
+            iconStartPos = iconButton.Position
+            iconDragMoved = false
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    iconDragging = false
+                    
+                    if not iconDragMoved and isMinimized then
+                        main.Visible = true
+                        iconButton.Visible = false
+                        isMinimized = false
+                    end
+                end
+            end)
+        end
+    end)
+    
+    UIS.InputChanged:Connect(function(input)
+        if iconDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - iconDragStart
+            
+            if math.abs(delta.X) > dragThreshold or math.abs(delta.Y) > dragThreshold then
+                iconDragMoved = true
+            end
+            
+            iconButton.Position = UDim2.new(iconStartPos.X.Scale, iconStartPos.X.Offset + delta.X, iconStartPos.Y.Scale, iconStartPos.Y.Offset + delta.Y)
         end
     end)
     
@@ -580,7 +696,8 @@ createNotification("Walk Recording Loaded", Color3.fromRGB(80, 255, 80))
 createMainGUI()
 
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("  Walk Recording System")
+print("  Walk Recording System v2")
 print("  By: Nazam")
-print("  ✓ Ready to use!")
+print("  ✓ FIXED: Stop Playback")
+print("  ✓ FIXED: Minimize Icon")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
