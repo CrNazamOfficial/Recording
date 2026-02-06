@@ -6,6 +6,7 @@ _G.CurrentRecording = {}
 _G.RecordInterval = 0.1
 _G.IsPlaying = false
 _G.PlaybackConnection = nil
+_G.PetirMode = false
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -21,7 +22,8 @@ local function saveToFile()
     end
     
     local data = {
-        paths = _G.RecordedPaths
+        paths = _G.RecordedPaths,
+        petirMode = _G.PetirMode
     }
     
     local success, err = pcall(function()
@@ -47,11 +49,13 @@ local function loadFromFile()
         local success, result = pcall(function()
             local data = HttpService:JSONDecode(readfile("walk_recording.json"))
             _G.RecordedPaths = data.paths or {}
+            _G.PetirMode = data.petirMode or false
             
             local count = 0
             for _ in pairs(_G.RecordedPaths) do count = count + 1 end
             
             print("[Recording] ✓ Loaded", count, "recordings")
+            print("[Recording] ✓ Petir Mode:", _G.PetirMode)
             return true
         end)
         
@@ -297,10 +301,18 @@ local function playRecording(pathData)
     local hrp = player.Character.HumanoidRootPart
     
     _G.IsPlaying = true
-    createNotification("Playing Recording", Color3.fromRGB(80, 200, 255))
+    
+    if _G.PetirMode then
+        createNotification("⚡ PETIR MODE ACTIVE!", Color3.fromRGB(255, 255, 80))
+    else
+        createNotification("Playing Recording", Color3.fromRGB(80, 200, 255))
+    end
     
     local index = 1
     local lastUpdate = tick()
+    
+    -- PETIR MODE: 100x faster playback!
+    local playbackInterval = _G.PetirMode and 0.001 or _G.RecordInterval
     
     _G.PlaybackConnection = RunService.Heartbeat:Connect(function()
         if not _G.IsPlaying or not player.Character then
@@ -308,7 +320,7 @@ local function playRecording(pathData)
             return
         end
         
-        if tick() - lastUpdate >= _G.RecordInterval then
+        if tick() - lastUpdate >= playbackInterval then
             if index <= #pathData then
                 hrp.CFrame = pathData[index]
                 index = index + 1
@@ -329,7 +341,7 @@ local function createMainGUI()
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.ResetOnSpawn = false
     
-    -- MINIMIZE ICON (HIDDEN BY DEFAULT)
+    -- MINIMIZE ICON
     local iconButton = Instance.new("ImageButton")
     iconButton.Name = "MinimizedIcon"
     iconButton.Size = UDim2.new(0, 35, 0, 35)
@@ -346,11 +358,11 @@ local function createMainGUI()
     iconCorner.CornerRadius = UDim.new(0, 6)
     iconCorner.Parent = iconButton
     
-    -- Main Frame (Compact 1:1 Ratio)
+    -- Main Frame
     local main = Instance.new("Frame")
     main.Name = "Main"
-    main.Size = UDim2.new(0, 160, 0, 265)
-    main.Position = UDim2.new(0.5, -80, 0.5, -132)
+    main.Size = UDim2.new(0, 160, 0, 290)
+    main.Position = UDim2.new(0.5, -80, 0.5, -145)
     main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     main.BorderColor3 = Color3.fromRGB(255, 100, 100)
     main.BorderSizePixel = 2
@@ -396,7 +408,7 @@ local function createMainGUI()
     closeBtnCorner.CornerRadius = UDim.new(0, 4)
     closeBtnCorner.Parent = closeBtn
     
-    -- Control Buttons
+    -- Buttons
     local btnY = 28
     local btnHeight = 24
     local btnSpacing = 4
@@ -420,6 +432,9 @@ local function createMainGUI()
         return btn
     end
     
+    local petirBtn = createButton("⚡ PETIR: OFF", Color3.fromRGB(100, 100, 25), btnY)
+    btnY = btnY + btnHeight + btnSpacing
+    
     local recordBtn = createButton("⏺ START", Color3.fromRGB(25, 100, 25), btnY)
     btnY = btnY + btnHeight + btnSpacing
     
@@ -429,7 +444,6 @@ local function createMainGUI()
     local stopBtn = createButton("⏹ STOP", Color3.fromRGB(100, 25, 25), btnY)
     btnY = btnY + btnHeight + btnSpacing
     
-    -- STOP PLAYBACK BUTTON (NEW!)
     local stopPlayBtn = createButton("⏹ STOP PLAY", Color3.fromRGB(150, 50, 25), btnY)
     btnY = btnY + btnHeight + btnSpacing
     
@@ -500,6 +514,16 @@ local function createMainGUI()
     listLayout.Parent = scroll
     
     -- Functions
+    local function updatePetirButton()
+        if _G.PetirMode then
+            petirBtn.BackgroundColor3 = Color3.fromRGB(200, 200, 25)
+            petirBtn.Text = "⚡ PETIR: ON"
+        else
+            petirBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 25)
+            petirBtn.Text = "⚡ PETIR: OFF"
+        end
+    end
+    
     local function refreshList()
         for _, child in pairs(scroll:GetChildren()) do
             if child:IsA("Frame") then
@@ -575,6 +599,12 @@ local function createMainGUI()
     end
     
     -- Button Events
+    petirBtn.MouseButton1Click:Connect(function()
+        _G.PetirMode = not _G.PetirMode
+        updatePetirButton()
+        saveToFile()
+    end)
+    
     recordBtn.MouseButton1Click:Connect(function()
         startRecording()
     end)
@@ -601,7 +631,7 @@ local function createMainGUI()
         end
     end)
     
-    -- Close/Minimize System
+    -- Close/Minimize
     local isMinimized = false
     
     closeBtn.MouseButton1Click:Connect(function()
@@ -684,8 +714,9 @@ local function createMainGUI()
         end
     end)
     
-    -- Load & Refresh
+    -- Load & Init
     loadFromFile()
+    updatePetirButton()
     refreshList()
     
     return gui
@@ -696,8 +727,7 @@ createNotification("Walk Recording Loaded", Color3.fromRGB(80, 255, 80))
 createMainGUI()
 
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print("  Walk Recording System v2")
+print("  Walk Recording System v3")
 print("  By: Nazam")
-print("  ✓ FIXED: Stop Playback")
-print("  ✓ FIXED: Minimize Icon")
+print("  ✓ PETIR Mode Ready!")
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
