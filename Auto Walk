@@ -1,0 +1,586 @@
+
+_G.RecordedPaths = {}
+_G.IsRecording = false
+_G.IsPaused = false
+_G.CurrentRecording = {}
+_G.RecordInterval = 0.1
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+
+-- Save/Load Functions
+local function saveToFile()
+    if not writefile then
+        warn("Exploit doesn't support writefile!")
+        return false
+    end
+    
+    local data = {
+        paths = _G.RecordedPaths
+    }
+    
+    local success, err = pcall(function()
+        writefile("walk_recording.json", HttpService:JSONEncode(data))
+    end)
+    
+    if success then
+        print("[Recording] ✓ Saved successfully!")
+        return true
+    else
+        warn("[Recording] ✗ Failed:", err)
+        return false
+    end
+end
+
+local function loadFromFile()
+    if not readfile or not isfile then
+        warn("Exploit doesn't support readfile/isfile!")
+        return false
+    end
+    
+    if isfile("walk_recording.json") then
+        local success, result = pcall(function()
+            local data = HttpService:JSONDecode(readfile("walk_recording.json"))
+            _G.RecordedPaths = data.paths or {}
+            
+            local count = 0
+            for _ in pairs(_G.RecordedPaths) do count = count + 1 end
+            
+            print("[Recording] ✓ Loaded", count, "recordings")
+            return true
+        end)
+        
+        if success then
+            return result
+        else
+            warn("[Recording] ✗ Failed to load save file!")
+            return false
+        end
+    else
+        print("[Recording] No save file found")
+        return false
+    end
+end
+
+-- Notification
+local function createNotification(text, color)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "RecordNotif"
+    screenGui.Parent = game.CoreGui
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 200, 0, 50)
+    frame.Position = UDim2.new(0.5, -100, 0.1, -25)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    frame.BorderColor3 = color or Color3.fromRGB(80, 255, 80)
+    frame.BorderSizePixel = 2
+    frame.BackgroundTransparency = 1
+    frame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 12
+    label.Parent = frame
+    
+    local fadeIn = TweenService:Create(frame, TweenInfo.new(0.3), {BackgroundTransparency = 0})
+    fadeIn:Play()
+    
+    wait(2)
+    
+    local fadeOut = TweenService:Create(frame, TweenInfo.new(0.3), {BackgroundTransparency = 1})
+    fadeOut:Play()
+    fadeOut.Completed:Connect(function()
+        screenGui:Destroy()
+    end)
+end
+
+-- Confirm Dialog
+local function createConfirmDialog(name, onYes)
+    local confirmGui = Instance.new("ScreenGui")
+    confirmGui.Name = "ConfirmDialog"
+    confirmGui.Parent = game.CoreGui
+    confirmGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    local overlay = Instance.new("Frame")
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    overlay.BackgroundTransparency = 0.5
+    overlay.BorderSizePixel = 0
+    overlay.Parent = confirmGui
+    
+    local dialog = Instance.new("Frame")
+    dialog.Size = UDim2.new(0, 220, 0, 110)
+    dialog.Position = UDim2.new(0.5, -110, 0.5, -55)
+    dialog.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    dialog.BorderColor3 = Color3.fromRGB(255, 80, 80)
+    dialog.BorderSizePixel = 2
+    dialog.Parent = confirmGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = dialog
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -10, 0, 25)
+    title.Position = UDim2.new(0, 5, 0, 5)
+    title.BackgroundTransparency = 1
+    title.Text = "Konfirmasi Hapus"
+    title.TextColor3 = Color3.fromRGB(255, 80, 80)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 11
+    title.Parent = dialog
+    
+    local message = Instance.new("TextLabel")
+    message.Size = UDim2.new(1, -10, 0, 40)
+    message.Position = UDim2.new(0, 5, 0, 30)
+    message.BackgroundTransparency = 1
+    message.Text = string.format('Apakah Kamu Yakin Akan Menghapus "%s"?', name)
+    message.TextColor3 = Color3.fromRGB(255, 255, 255)
+    message.Font = Enum.Font.Gotham
+    message.TextSize = 9
+    message.TextWrapped = true
+    message.Parent = dialog
+    
+    local buttonFrame = Instance.new("Frame")
+    buttonFrame.Size = UDim2.new(1, -10, 0, 28)
+    buttonFrame.Position = UDim2.new(0, 5, 1, -33)
+    buttonFrame.BackgroundTransparency = 1
+    buttonFrame.Parent = dialog
+    
+    local yesButton = Instance.new("TextButton")
+    yesButton.Size = UDim2.new(0.48, 0, 1, 0)
+    yesButton.BackgroundColor3 = Color3.fromRGB(100, 25, 25)
+    yesButton.BorderColor3 = Color3.fromRGB(255, 80, 80)
+    yesButton.BorderSizePixel = 1
+    yesButton.Text = "YES"
+    yesButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    yesButton.Font = Enum.Font.GothamBold
+    yesButton.TextSize = 10
+    yesButton.Parent = buttonFrame
+    
+    local yesCorner = Instance.new("UICorner")
+    yesCorner.CornerRadius = UDim.new(0, 4)
+    yesCorner.Parent = yesButton
+    
+    local noButton = Instance.new("TextButton")
+    noButton.Size = UDim2.new(0.48, 0, 1, 0)
+    noButton.Position = UDim2.new(0.52, 0, 0, 0)
+    noButton.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    noButton.BorderColor3 = Color3.fromRGB(80, 80, 80)
+    noButton.BorderSizePixel = 1
+    noButton.Text = "NO"
+    noButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    noButton.Font = Enum.Font.GothamBold
+    noButton.TextSize = 10
+    noButton.Parent = buttonFrame
+    
+    local noCorner = Instance.new("UICorner")
+    noCorner.CornerRadius = UDim.new(0, 4)
+    noCorner.Parent = noButton
+    
+    yesButton.MouseButton1Click:Connect(function()
+        onYes()
+        confirmGui:Destroy()
+    end)
+    
+    noButton.MouseButton1Click:Connect(function()
+        confirmGui:Destroy()
+    end)
+end
+
+-- Recording System
+local recordConnection = nil
+
+local function startRecording()
+    if _G.IsRecording then return end
+    
+    local player = Players.LocalPlayer
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        createNotification("Character not found!", Color3.fromRGB(255, 80, 80))
+        return
+    end
+    
+    _G.IsRecording = true
+    _G.IsPaused = false
+    _G.CurrentRecording = {}
+    
+    createNotification("Recording Started", Color3.fromRGB(80, 255, 80))
+    
+    recordConnection = RunService.Heartbeat:Connect(function()
+        if not _G.IsPaused and _G.IsRecording then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                table.insert(_G.CurrentRecording, hrp.CFrame)
+            end
+            wait(_G.RecordInterval)
+        end
+    end)
+end
+
+local function stopRecording()
+    if not _G.IsRecording then return end
+    
+    _G.IsRecording = false
+    _G.IsPaused = false
+    
+    if recordConnection then
+        recordConnection:Disconnect()
+        recordConnection = nil
+    end
+    
+    createNotification("Recording Stopped", Color3.fromRGB(255, 200, 80))
+end
+
+local function pauseRecording()
+    if not _G.IsRecording then return end
+    
+    _G.IsPaused = not _G.IsPaused
+    
+    if _G.IsPaused then
+        createNotification("Recording Paused", Color3.fromRGB(255, 255, 80))
+    else
+        createNotification("Recording Resumed", Color3.fromRGB(80, 255, 80))
+    end
+end
+
+local function saveRecording(name)
+    if #_G.CurrentRecording == 0 then
+        createNotification("No recording data!", Color3.fromRGB(255, 80, 80))
+        return false
+    end
+    
+    _G.RecordedPaths[name] = _G.CurrentRecording
+    _G.CurrentRecording = {}
+    saveToFile()
+    createNotification("Saved: " .. name, Color3.fromRGB(80, 255, 80))
+    return true
+end
+
+local function playRecording(pathData)
+    local player = Players.LocalPlayer
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        createNotification("Character not found!", Color3.fromRGB(255, 80, 80))
+        return
+    end
+    
+    local hrp = player.Character.HumanoidRootPart
+    
+    createNotification("Playing Recording", Color3.fromRGB(80, 200, 255))
+    
+    spawn(function()
+        for i, cframe in ipairs(pathData) do
+            if not player.Character then break end
+            hrp.CFrame = cframe
+            wait(_G.RecordInterval)
+        end
+        createNotification("Playback Complete", Color3.fromRGB(80, 255, 80))
+    end)
+end
+
+-- Main GUI
+local function createMainGUI()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "WalkRecordingGUI"
+    gui.Parent = game.CoreGui
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.ResetOnSpawn = false
+    
+    -- Main Frame (Compact 1:1 Ratio)
+    local main = Instance.new("Frame")
+    main.Name = "Main"
+    main.Size = UDim2.new(0, 160, 0, 240)
+    main.Position = UDim2.new(0.5, -80, 0.5, -120)
+    main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    main.BorderColor3 = Color3.fromRGB(255, 100, 100)
+    main.BorderSizePixel = 2
+    main.Active = true
+    main.Parent = gui
+    
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 8)
+    mainCorner.Parent = main
+    
+    -- Header
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 22)
+    header.BackgroundTransparency = 1
+    header.Parent = main
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(0.7, 0, 1, 0)
+    title.Position = UDim2.new(0, 6, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "RECORD"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 11
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = header
+    
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 18, 0, 18)
+    closeBtn.Position = UDim2.new(1, -20, 0.5, -9)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 10
+    closeBtn.Parent = header
+    
+    local closeBtnCorner = Instance.new("UICorner")
+    closeBtnCorner.CornerRadius = UDim.new(0, 4)
+    closeBtnCorner.Parent = closeBtn
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        gui:Destroy()
+    end)
+    
+    -- Control Buttons
+    local btnY = 28
+    local btnHeight = 24
+    local btnSpacing = 4
+    
+    local function createButton(text, color, posY)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, 145, 0, btnHeight)
+        btn.Position = UDim2.new(0, 8, 0, posY)
+        btn.BackgroundColor3 = color
+        btn.BorderSizePixel = 0
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 9
+        btn.Parent = main
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = btn
+        
+        return btn
+    end
+    
+    local recordBtn = createButton("⏺ START", Color3.fromRGB(25, 100, 25), btnY)
+    btnY = btnY + btnHeight + btnSpacing
+    
+    local pauseBtn = createButton("⏸ PAUSE", Color3.fromRGB(100, 100, 25), btnY)
+    btnY = btnY + btnHeight + btnSpacing
+    
+    local stopBtn = createButton("⏹ STOP", Color3.fromRGB(100, 25, 25), btnY)
+    btnY = btnY + btnHeight + btnSpacing
+    
+    -- Input Frame
+    local inputFrame = Instance.new("Frame")
+    inputFrame.Size = UDim2.new(0, 145, 0, 26)
+    inputFrame.Position = UDim2.new(0, 8, 0, btnY)
+    inputFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    inputFrame.BorderSizePixel = 0
+    inputFrame.Parent = main
+    
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 4)
+    inputCorner.Parent = inputFrame
+    
+    local nameBox = Instance.new("TextBox")
+    nameBox.Size = UDim2.new(0.68, 0, 0.85, 0)
+    nameBox.Position = UDim2.new(0.03, 0, 0.075, 0)
+    nameBox.BackgroundTransparency = 1
+    nameBox.Text = ""
+    nameBox.PlaceholderText = "Name..."
+    nameBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameBox.Font = Enum.Font.Gotham
+    nameBox.TextSize = 9
+    nameBox.TextXAlignment = Enum.TextXAlignment.Left
+    nameBox.Parent = inputFrame
+    
+    local saveBtn = Instance.new("TextButton")
+    saveBtn.Size = UDim2.new(0.26, 0, 0.85, 0)
+    saveBtn.Position = UDim2.new(0.72, 0, 0.075, 0)
+    saveBtn.BackgroundColor3 = Color3.fromRGB(80, 150, 255)
+    saveBtn.Text = "💾"
+    saveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextSize = 12
+    saveBtn.Parent = inputFrame
+    
+    local saveBtnCorner = Instance.new("UICorner")
+    saveBtnCorner.CornerRadius = UDim.new(0, 4)
+    saveBtnCorner.Parent = saveBtn
+    
+    btnY = btnY + 32
+    
+    -- List Frame
+    local listFrame = Instance.new("Frame")
+    listFrame.Size = UDim2.new(0, 145, 0, 100)
+    listFrame.Position = UDim2.new(0, 8, 0, btnY)
+    listFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+    listFrame.BorderSizePixel = 0
+    listFrame.ClipsDescendants = true
+    listFrame.Parent = main
+    
+    local listCorner = Instance.new("UICorner")
+    listCorner.CornerRadius = UDim.new(0, 4)
+    listCorner.Parent = listFrame
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1, 0, 1, 0)
+    scroll.BackgroundTransparency = 1
+    scroll.ScrollBarThickness = 4
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.Parent = listFrame
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 3)
+    listLayout.Parent = scroll
+    
+    -- Functions
+    local function refreshList()
+        for _, child in pairs(scroll:GetChildren()) do
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
+        end
+        
+        for name, pathData in pairs(_G.RecordedPaths) do
+            local entry = Instance.new("Frame")
+            entry.Size = UDim2.new(1, -6, 0, 24)
+            entry.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            entry.BorderSizePixel = 0
+            entry.Parent = scroll
+            
+            local entryCorner = Instance.new("UICorner")
+            entryCorner.CornerRadius = UDim.new(0, 4)
+            entryCorner.Parent = entry
+            
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(0.5, 0, 1, 0)
+            nameLabel.Position = UDim2.new(0, 4, 0, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = name
+            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameLabel.Font = Enum.Font.Gotham
+            nameLabel.TextSize = 8
+            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLabel.Parent = entry
+            
+            local playBtn = Instance.new("TextButton")
+            playBtn.Size = UDim2.new(0, 26, 0, 18)
+            playBtn.Position = UDim2.new(0.52, 0, 0.5, -9)
+            playBtn.BackgroundColor3 = Color3.fromRGB(25, 100, 200)
+            playBtn.Text = "▶"
+            playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            playBtn.Font = Enum.Font.GothamBold
+            playBtn.TextSize = 8
+            playBtn.Parent = entry
+            
+            local playBtnCorner = Instance.new("UICorner")
+            playBtnCorner.CornerRadius = UDim.new(0, 3)
+            playBtnCorner.Parent = playBtn
+            
+            playBtn.MouseButton1Click:Connect(function()
+                playRecording(pathData)
+            end)
+            
+            local delBtn = Instance.new("TextButton")
+            delBtn.Size = UDim2.new(0, 20, 0, 18)
+            delBtn.Position = UDim2.new(1, -22, 0.5, -9)
+            delBtn.BackgroundColor3 = Color3.fromRGB(150, 25, 25)
+            delBtn.Text = "X"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.TextSize = 8
+            delBtn.Parent = entry
+            
+            local delBtnCorner = Instance.new("UICorner")
+            delBtnCorner.CornerRadius = UDim.new(0, 3)
+            delBtnCorner.Parent = delBtn
+            
+            delBtn.MouseButton1Click:Connect(function()
+                createConfirmDialog(name, function()
+                    _G.RecordedPaths[name] = nil
+                    saveToFile()
+                    refreshList()
+                end)
+            end)
+        end
+        
+        scroll.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+    end
+    
+    -- Button Events
+    recordBtn.MouseButton1Click:Connect(function()
+        startRecording()
+    end)
+    
+    pauseBtn.MouseButton1Click:Connect(function()
+        pauseRecording()
+    end)
+    
+    stopBtn.MouseButton1Click:Connect(function()
+        stopRecording()
+    end)
+    
+    saveBtn.MouseButton1Click:Connect(function()
+        local name = nameBox.Text:gsub("^%s*(.-)%s*$", "%1")
+        if name ~= "" then
+            if saveRecording(name) then
+                nameBox.Text = ""
+                refreshList()
+            end
+        end
+    end)
+    
+    -- Drag
+    local dragging = false
+    local dragStart, startPos
+    
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+        end
+    end)
+    
+    game:GetService("UserInputService").InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    game:GetService("UserInputService").InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    
+    -- Load & Refresh
+    loadFromFile()
+    refreshList()
+    
+    return gui
+end
+
+-- Init
+createNotification("Walk Recording Loaded", Color3.fromRGB(80, 255, 80))
+createMainGUI()
+
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("  Walk Recording System")
+print("  By: Nazam")
+print("  ✓ Ready to use!")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
